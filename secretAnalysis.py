@@ -96,7 +96,7 @@ sns.heatmap(pd.crosstab(df['bias_type'], df['stereo_antistereo']), annot=True, f
 plt.title('Önyargı Türleri ve Stereo/Antistereo Dağılımı')
 plt.show()
 
-# 🛠️ TF-IDF Kelime Analizi
+# TF-IDF Kelime Analizi
 tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=50)
 tfidf_sent_more = tfidf_vectorizer.fit_transform(df['sent_more'].fillna(''))
 tfidf_sent_less = tfidf_vectorizer.fit_transform(df['sent_less'].fillna(''))
@@ -116,7 +116,7 @@ plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], alpha=0.7, cmap=
 plt.title('TF-IDF Kelime Uzayı PCA Görselleştirmesi')
 plt.show()
 
-# 📂 Temizlenmiş Veriyi Kaydet
+# Temizlenmiş Veriyi Kaydet
 output_file = '/Users/bilge/Desktop/crows-pairs/data/cleaned_crows_pairs.csv'
 df.to_csv(output_file, index=False)
 print(f"\n Temizlenmiş veri başarıyla kaydedildi: {output_file}")
