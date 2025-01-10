@@ -8,6 +8,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.manifold import TSNE
 import umap
 import warnings
+from datasets import load_dataset
 
 # Paralel işlem uyarısını devre dışı bırakma
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -21,16 +22,21 @@ warnings.filterwarnings("ignore", category=UserWarning, module="umap")
 Bu projede, NLP modellerindeki gizli önyargıları tespit etmek, analiz etmek ve görselleştirmek amacıyla kapsamlı bir çalışma gerçekleştirildi.
 """
 
-# Veri Seti Yolu ve Çalışma Dizini
-file_path = '/Users/bilge/Downloads/Dataset.xlsx'
-os.chdir('/Users/bilge/Desktop')
-
+# Veri Setini Yükleme
 try:
-    df = pd.read_excel(file_path)
+    dataset = load_dataset("winvoker/turkish-sentiment-analysis-dataset")
+    df = pd.DataFrame(dataset['train'])  # Eğitim verisini DataFrame'e dönüştürüyoruz
+
     print(f"Toplam satır sayısı: {df.shape[0]}, Toplam sütun sayısı: {df.shape[1]}")
     print("Sütun isimleri:", df.columns)
-except FileNotFoundError:
-    print(f"Hata: Dosya bulunamadı -> {file_path}")
+
+    # 'text' sütunu kontrolü
+    if 'text' not in df.columns:
+        print("Hata: 'text' sütunu veri setinde bulunamadı. Mevcut sütunlar:", df.columns)
+        exit()
+
+except Exception as e:
+    print(f"Hata: Veri seti yüklenemedi. Detay: {e}")
     exit()
 
 print("\nVeri Seti İlk 5 Satır:")
@@ -42,7 +48,7 @@ print(df.isnull().sum())
 
 # Gönderilerin uzunluklarının histogramını çizme
 plt.figure(figsize=(10, 6))
-df['Post description'].str.len().plot(kind='hist', bins=30, alpha=0.7)
+df['text'].str.len().plot(kind='hist', bins=30, alpha=0.7)
 plt.title('Gönderi Uzunlukları Dağılımı')
 plt.xlabel('Cümle Uzunluğu')
 plt.ylabel('Frekans')
@@ -50,17 +56,9 @@ plt.show()
 
 # Sentiment Dağılımı
 plt.figure(figsize=(10, 6))
-df['Sentiment'].value_counts().plot(kind='bar', color='lightblue')
+df['label'].value_counts().plot(kind='bar', color='lightblue')
 plt.title('Sentiment Dağılımı')
 plt.xlabel('Duygu Durumu')
-plt.ylabel('Frekans')
-plt.show()
-
-# Stress ve Anksiyete Durumu Dağılımı
-plt.figure(figsize=(10, 6))
-df['Stress or Anxiety'].value_counts().plot(kind='bar', color='orange')
-plt.title('Stres ve Anksiyete Durumu Dağılımı')
-plt.xlabel('Stres/Anksiyete Durumu')
 plt.ylabel('Frekans')
 plt.show()
 
@@ -73,8 +71,8 @@ except Exception as e:
     exit()
 
 # Önyargılı ve Önyargısız Cümle Analizi
-example_sent_more = df['Post description'].iloc[0].replace("he", "[MASK]")
-example_sent_less = df['Post description'].iloc[1].replace("she", "[MASK]")
+example_sent_more = df['text'].iloc[0].replace("o", "[MASK]")
+example_sent_less = df['text'].iloc[1].replace("bu", "[MASK]")
 
 # Önyargılı Cümlede [MASK] Kontrolü
 if "[MASK]" not in example_sent_more:
@@ -104,10 +102,16 @@ else:
     else:
         print("Çıktı beklenmeyen formatta:", result_less)
 
+# Türkçe durdurma kelimeleri
+turkish_stop_words = [
+    "ve", "bir", "bu", "da", "de", "için", "ile", "ama", "eğer", "daha", "çok", "gibi", "ancak", "ise",
+    "diye", "ki", "şu", "çünkü", "o", "kadar", "ne", "mu", "mi", "mı", "biraz", "bazı", "her", "tüm", "bazıları"
+]
+
 # TF-IDF Kelime Frekans Analizi
-tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=50)
-tfidf_sent_more = tfidf_vectorizer.fit_transform(df['Post description'].fillna(''))
-print("En çok geçen kelimeler (Önyargılı Cümleler):")
+tfidf_vectorizer = TfidfVectorizer(stop_words=turkish_stop_words, max_features=50)
+tfidf_sent_more = tfidf_vectorizer.fit_transform(df['text'].fillna(''))
+print("En çok geçen kelimeler:")
 print(pd.DataFrame(tfidf_sent_more.toarray(), columns=tfidf_vectorizer.get_feature_names_out()).sum().sort_values(ascending=False).head(10))
 
 # PCA Görselleştirme
