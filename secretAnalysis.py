@@ -5,6 +5,17 @@ import os
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.manifold import TSNE
+import umap
+import warnings
+
+# Paralel işlem uyarısını devre dışı bırakma
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Uyarıları yoksayma
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers.tokenization_utils_base")
+warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.utils.deprecation")
+warnings.filterwarnings("ignore", category=UserWarning, module="umap")
 
 """
 Bu projede, NLP modellerindeki gizli önyargıları tespit etmek, analiz etmek ve görselleştirmek amacıyla kapsamlı bir çalışma gerçekleştirildi.
@@ -104,8 +115,34 @@ pca = PCA(n_components=2)
 reduced_embeddings = pca.fit_transform(tfidf_sent_more.toarray())
 
 plt.figure(figsize=(10, 8))
-plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], alpha=0.7, cmap='viridis')
+plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], alpha=0.7)
 plt.title('TF-IDF Kelime Uzayı PCA Görselleştirmesi')
+plt.show()
+
+# T-SNE Görselleştirme
+print("\nT-SNE Analizi Başlıyor...")
+tsne = TSNE(n_components=2, random_state=42, perplexity=30, max_iter=300)
+tsne_results = tsne.fit_transform(tfidf_sent_more.toarray())
+
+colors = np.random.rand(tsne_results.shape[0])
+plt.figure(figsize=(10, 8))
+plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=colors, cmap='viridis', alpha=0.7)
+plt.title("T-SNE ile Embedding Uzayı Görselleştirmesi")
+plt.xlabel("T-SNE Bileşeni 1")
+plt.ylabel("T-SNE Bileşeni 2")
+plt.show()
+
+# UMAP Görselleştirme
+print("\nUMAP Analizi Başlıyor...")
+umap_reducer = umap.UMAP(n_components=2)
+umap_results = umap_reducer.fit_transform(tfidf_sent_more.toarray())
+
+colors = np.random.rand(umap_results.shape[0])
+plt.figure(figsize=(10, 8))
+plt.scatter(umap_results[:, 0], umap_results[:, 1], c=colors, cmap='viridis', alpha=0.7)
+plt.title("UMAP ile Embedding Uzayı Görselleştirmesi")
+plt.xlabel("UMAP Bileşeni 1")
+plt.ylabel("UMAP Bileşeni 2")
 plt.show()
 
 # Temizlenmiş Veriyi Kaydet
