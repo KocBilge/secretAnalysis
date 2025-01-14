@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from transformers import pipeline
 import os
+import lime
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -9,6 +10,10 @@ from sklearn.manifold import TSNE
 import umap
 import warnings
 from datasets import load_dataset
+from sklearn.metrics import classification_report, confusion_matrix
+from lime.lime_text import LimeTextExplainer
+from nlpaug.augmenter.word import SynonymAug
+import seaborn as sns
 
 # Paralel işlem uyarısını devre dışı bırakma
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -34,6 +39,9 @@ try:
     if 'text' not in df.columns:
         print("Hata: 'text' sütunu veri setinde bulunamadı. Mevcut sütunlar:", df.columns)
         exit()
+
+    # UTF-8 hatalarını temizleme
+    df['text'] = df['text'].apply(lambda x: x.encode('utf-8', 'ignore').decode('utf-8') if isinstance(x, str) else '')
 
 except Exception as e:
     print(f"Hata: Veri seti yüklenemedi. Detay: {e}")
@@ -64,45 +72,54 @@ plt.show()
 
 # DistilBERT Modeli Yükleme
 try:
-    classifier = pipeline('fill-mask', model='distilbert-base-uncased')
-    print("\n🤖 DistilBERT Modeli Yüklendi Başarıyla!")
+    classifier = pipeline('text-classification', model='distilbert-base-uncased')
+    print("\n\ud83e\udd16 DistilBERT Modeli Yüklendi Başarıyla!")
 except Exception as e:
     print(f"Hata: NLP modeli yüklenirken sorun oluştu. Detay: {e}")
     exit()
 
-# Önyargılı ve Önyargısız Cümle Analizi
-example_sent_more = df['text'].iloc[0].replace("o", "[MASK]")
-example_sent_less = df['text'].iloc[1].replace("bu", "[MASK]")
+# Model Performansının Değerlendirilmesi
+try:
+    y_true = df['label']
+    y_pred = [classifier(text)[0]['label'] for text in df['text']]
 
-# Önyargılı Cümlede [MASK] Kontrolü
-if "[MASK]" not in example_sent_more:
-    print("Hata: Önyargılı cümlede [MASK] tokeni bulunamadı.")
-    print("Cümle:", example_sent_more)
-else:
-    print("\nÖnyargılı Cümle Analizi:")
-    result_more = classifier(example_sent_more)
-    print("Önyargılı Cümle Çıktısı:", result_more)
-    if isinstance(result_more, list) and all(isinstance(res, dict) for res in result_more):
-        for res in result_more:
-            print(f"Prediction: {res['sequence']} with a score of {res['score']}")
-    else:
-        print("Çıktı beklenmeyen formatta:", result_more)
+    print("\nModel Performansı:")
+    print(classification_report(y_true, y_pred))
 
-# Önyargısız Cümlede [MASK] Kontrolü
-if "[MASK]" not in example_sent_less:
-    print("Hata: Önyargısız cümlede [MASK] tokeni bulunamadı.")
-    print("Cümle:", example_sent_less)
-else:
-    print("\nÖnyargısız Cümle Analizi:")
-    result_less = classifier(example_sent_less)
-    print("Önyargısız Cümle Çıktısı:", result_less)
-    if isinstance(result_less, list) and all(isinstance(res, dict) for res in result_less):
-        for res in result_less:
-            print(f"Prediction: {res['sequence']} with a score of {res['score']}")
-    else:
-        print("Çıktı beklenmeyen formatta:", result_less)
+    # Karışıklık Matrisi
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title('Karışıklık Matrisi')
+    plt.xlabel('Tahmin Edilen')
+    plt.ylabel('Gerçek')
+    plt.show()
 
-# Türkçe durdurma kelimeleri
+except Exception as e:
+    print(f"Hata: Model değerlendirme sırasında sorun oluştu. Detay: {e}")
+    exit()
+
+# LIME ile Model Açıklanabilirliği
+try:
+    explainer = LimeTextExplainer(class_names=['negative', 'positive'])
+    explanation = explainer.explain_instance(
+        df['text'].iloc[0],
+        lambda x: [classifier(text)[0]['score'] for text in x]
+    )
+    explanation.show_in_notebook()
+except Exception as e:
+    print(f"Hata: LIME açıklaması oluşturulamadı. Detay: {e}")
+
+# Veri Zenginleştirme (Data Augmentation)
+try:
+    aug = SynonymAug()
+    df['augmented_text'] = df['text'].apply(lambda x: aug.augment(x))
+    print("\nVeri Zenginleştirme Tamamlandı. Örnek Zenginleştirilmiş Metinler:")
+    print(df[['text', 'augmented_text']].head())
+except Exception as e:
+    print(f"Hata: Veri zenginleştirme sırasında sorun oluştu. Detay: {e}")
+
+# Türkçe stop words kelimeleri
 turkish_stop_words = [
     "ve", "bir", "bu", "da", "de", "için", "ile", "ama", "eğer", "daha", "çok", "gibi", "ancak", "ise",
     "diye", "ki", "şu", "çünkü", "o", "kadar", "ne", "mu", "mi", "mı", "biraz", "bazı", "her", "tüm", "bazıları"
@@ -115,43 +132,55 @@ print("En çok geçen kelimeler:")
 print(pd.DataFrame(tfidf_sent_more.toarray(), columns=tfidf_vectorizer.get_feature_names_out()).sum().sort_values(ascending=False).head(10))
 
 # PCA Görselleştirme
-pca = PCA(n_components=2)
-reduced_embeddings = pca.fit_transform(tfidf_sent_more.toarray())
+try:
+    pca = PCA(n_components=2)
+    reduced_embeddings = pca.fit_transform(tfidf_sent_more.toarray())
 
-plt.figure(figsize=(10, 8))
-plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], alpha=0.7)
-plt.title('TF-IDF Kelime Uzayı PCA Görselleştirmesi')
-plt.show()
+    plt.figure(figsize=(10, 8))
+    plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], alpha=0.7)
+    plt.title('TF-IDF Kelime Uzayı PCA Görselleştirmesi')
+    plt.show()
+except Exception as e:
+    print(f"Hata: PCA görselleştirme sırasında sorun oluştu. Detay: {e}")
 
 # T-SNE Görselleştirme
-print("\nT-SNE Analizi Başlıyor...")
-tsne = TSNE(n_components=2, random_state=42, perplexity=30, max_iter=300)
-tsne_results = tsne.fit_transform(tfidf_sent_more.toarray())
+try:
+    print("\nT-SNE Analizi Başlıyor...")
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=300)
+    tsne_results = tsne.fit_transform(tfidf_sent_more.toarray())
 
-colors = np.random.rand(tsne_results.shape[0])
-plt.figure(figsize=(10, 8))
-plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=colors, cmap='viridis', alpha=0.7)
-plt.title("T-SNE ile Embedding Uzayı Görselleştirmesi")
-plt.xlabel("T-SNE Bileşeni 1")
-plt.ylabel("T-SNE Bileşeni 2")
-plt.show()
+    colors = np.random.rand(tsne_results.shape[0])
+    plt.figure(figsize=(10, 8))
+    plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=colors, cmap='viridis', alpha=0.7)
+    plt.title("T-SNE ile Embedding Uzayı Görselleştirmesi")
+    plt.xlabel("T-SNE Bileşeni 1")
+    plt.ylabel("T-SNE Bileşeni 2")
+    plt.show()
+except Exception as e:
+    print(f"Hata: T-SNE görselleştirme sırasında sorun oluştu. Detay: {e}")
 
 # UMAP Görselleştirme
-print("\nUMAP Analizi Başlıyor...")
-umap_reducer = umap.UMAP(n_components=2)
-umap_results = umap_reducer.fit_transform(tfidf_sent_more.toarray())
+try:
+    print("\nUMAP Analizi Başlıyor...")
+    umap_reducer = umap.UMAP(n_components=2)
+    umap_results = umap_reducer.fit_transform(tfidf_sent_more.toarray())
 
-colors = np.random.rand(umap_results.shape[0])
-plt.figure(figsize=(10, 8))
-plt.scatter(umap_results[:, 0], umap_results[:, 1], c=colors, cmap='viridis', alpha=0.7)
-plt.title("UMAP ile Embedding Uzayı Görselleştirmesi")
-plt.xlabel("UMAP Bileşeni 1")
-plt.ylabel("UMAP Bileşeni 2")
-plt.show()
+    colors = np.random.rand(umap_results.shape[0])
+    plt.figure(figsize=(10, 8))
+    plt.scatter(umap_results[:, 0], umap_results[:, 1], c=colors, cmap='viridis', alpha=0.7)
+    plt.title("UMAP ile Embedding Uzayı Görselleştirmesi")
+    plt.xlabel("UMAP Bileşeni 1")
+    plt.ylabel("UMAP Bileşeni 2")
+    plt.show()
+except Exception as e:
+    print(f"Hata: UMAP görselleştirme sırasında sorun oluştu. Detay: {e}")
 
 # Temizlenmiş Veriyi Kaydet
 output_file = '/Users/bilge/Downloads/Cleaned_Dataset.csv'
-df.to_csv(output_file, index=False)
-print(f"\nTemizlenmiş veri başarıyla kaydedildi: {output_file}")
+try:
+    df.to_csv(output_file, index=False)
+    print(f"\nTemizlenmiş veri başarıyla kaydedildi: {output_file}")
+except Exception as e:
+    print(f"Hata: Temizlenmiş veri kaydedilirken sorun oluştu. Detay: {e}")
 
 print("\nAnaliz başarıyla tamamlandı!")
